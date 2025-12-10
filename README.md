@@ -22,5 +22,6 @@ uv run -m http.server 7777
 Run sync watcher
 
 ```
+# whhich Claude project folder to watch and sync
 uv run watch.py ../MyClaudeProject --mirror-to ./md --max-depth 3
 ```
