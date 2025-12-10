@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Claude Library</title>
+
+  <!-- Highlight.js theme -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar" aria-label="Files">
+      <header>
+        <div class="title-row">
+          <strong>Claude Library</strong>
+          <button id="refreshBtn" class="btn" title="Refresh file index">Refresh</button>
+        </div>
+      </header>
+
+      <div class="toolbar">
+        <input id="filter" class="search" placeholder="Filter by name (optional)" />
+      </div>
+
+      <div class="sidebar-scroll-content">
+        <ul id="fileList" class="list" role="list"></ul>
+        <div id="noFiles" class="empty" style="display:none">No .md files found.</div>
+      </div>
+    </aside>
+
+    <main class="content" aria-live="polite">
+      <div id="mdContainer" class="md-content">
+        <div id="placeholder" class="empty">Select a file on the left to view its rendered Markdown.</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Marked (Markdown renderer) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

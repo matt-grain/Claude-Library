@@ -1,0 +1,15 @@
+[project]
+name = "Claude Library"
+version = "0.1.0"
+description = "A simple local markdown web viewer to manage Claude context files"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "watchdog>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
+    "ruff>=0.14.8",
+]
