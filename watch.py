@@ -40,15 +40,17 @@ def build_index(root: Path, max_depth: Optional[int] = None):
         if max_depth is not None and depth > max_depth:
             dirnames.clear()  # don't recurse deeper
             continue
-        # skip hidden directories
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        # skip hidden directories except claude
+        dirnames[:] = [d for d in dirnames if d.startswith(".claude") or not d.startswith(".")]
         for fname in sorted(filenames):
+            print(f"{dirpath} / {fname}")
             if fname.lower().endswith(".md"):
                 full_path = Path(dirpath) / fname
                 try:
                     rel = full_path.relative_to(root)
-                    if not any(part.startswith(".") for part in rel.parts):
+                    if not any(part.startswith(".") for part in rel.parts) or rel.parts[0] == ".claude":
                         md_paths.append(str(rel.as_posix()))
+
                 except Exception:
                     pass
     return sorted(md_paths)
@@ -220,6 +222,8 @@ def main():
         print(f"[error] Watched directory does not exist: {root}")
         sys.exit(2)
 
+    print(f"Watching {root}")
+
     # Decide where to write the output file. If the index will be generated from
     # the mirror (local) directory, it's more useful to write `--out` relative
     # to the current working directory (where the mirror lives), otherwise write
@@ -247,21 +251,29 @@ def main():
             if args.max_depth is not None and depth > args.max_depth:
                 dirnames.clear()
                 continue
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+
+            dirnames[:] = [d for d in dirnames if (d.startswith(".claude") or not d.startswith(".")) and d not in ['__pycache__']]
+
             for fname in sorted(filenames):
                 if not fname.lower().endswith(".md"):
                     continue
+
+                # print(f"Syncing {dirpath} {dirnames} {fname}")
+
                 src = Path(dirpath) / fname
                 try:
                     rel = src.relative_to(root)
-                    if any(part.startswith(".") for part in rel.parts):
+                    if any(part.startswith(".") for part in rel.parts) and rel.parts[0] != ".claude":
+                        print(f"Skipping {rel} {rel.parts[0] }")
                         continue
+
                     dst = mirror_to / rel
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
                     copied += 1
                 except Exception as e:
                     print("[mirror] initial copy failed for", src, e)
+
         print(f"[mirror] Completed initial copy: {copied} files")
         if args.prune:
             # remove any md files under mirror_to that don't exist in watched root

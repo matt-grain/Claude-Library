@@ -1,5 +1,5 @@
 [project]
-name = "Claude Library"
+name = "Claude-Library"
 version = "0.1.0"
 description = "A simple local markdown web viewer to manage Claude context files"
 readme = "README.md"
