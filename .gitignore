@@ -11,3 +11,4 @@ wheels/
 *.md
 .python-version
 files.json
+__pycache__

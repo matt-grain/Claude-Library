@@ -37,6 +37,7 @@ const refreshBtn = document.getElementById('refreshBtn');
 let files = []; // will hold {name, path}
 let displayed = [];
 let activeIndex = -1;
+let mdFolderPrefix = ''; // prefix for loading files (detected on init)
 
 // Sidebar resizer: create a draggable handle to resize the left panel width
 (function setupSidebarResizer() {
@@ -135,6 +136,15 @@ applyZoom(getSavedZoom());
 marked.setOptions({ gfm: true, breaks: false, headerIds: true });
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+// Strip YAML frontmatter from markdown (content between --- at start of file)
+function stripFrontmatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (match) {
+    return text.slice(match[0].length);
+  }
+  return text;
+}
 
 // --- Find-in-markdown feature ---
 let findState = {
@@ -449,7 +459,8 @@ function selectFile(idx) {
     if (!r.ok) throw new Error('Failed to load file');
     return r.text();
   }).then(txt => {
-    const html = marked.parse(txt);
+    const content = stripFrontmatter(txt);
+    const html = marked.parse(content);
     mdContainer.innerHTML = html;
     // run highlight.js on code blocks
     document.querySelectorAll('#mdContainer pre code').forEach((block) => {
@@ -875,3 +886,85 @@ document.addEventListener('keydown', (e) => {
     if (node) { node.focus(); node.click(); }
   }
 });
+
+// --- Context menu for copying file paths ---
+(function setupContextMenu() {
+  // Create context menu element
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.style.display = 'none';
+  menu.innerHTML = `
+    <div class="context-menu-item" data-action="copy-path">
+      <span class="context-menu-icon">📋</span>
+      <span>Copy path</span>
+    </div>
+  `;
+  document.body.appendChild(menu);
+
+  let targetPath = null;
+
+  // Hide menu on click outside or escape
+  function hideMenu() {
+    menu.style.display = 'none';
+    targetPath = null;
+  }
+
+  document.addEventListener('click', hideMenu);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideMenu();
+  });
+
+  // Show context menu on right-click on file items
+  fileListEl.addEventListener('contextmenu', (e) => {
+    const fileItem = e.target.closest('li.file');
+    if (!fileItem) return;
+
+    e.preventDefault();
+
+    // Get the file index and path
+    const idx = parseInt(fileItem.dataset.index, 10);
+    if (isNaN(idx) || !displayed[idx]) return;
+
+    // Store the path (already in linux format from files.json)
+    targetPath = displayed[idx].path;
+
+    // Position the menu
+    const x = e.clientX;
+    const y = e.clientY;
+
+    // Ensure menu doesn't go off-screen
+    menu.style.display = 'block';
+    const menuRect = menu.getBoundingClientRect();
+    const maxX = window.innerWidth - menuRect.width - 10;
+    const maxY = window.innerHeight - menuRect.height - 10;
+
+    menu.style.left = Math.min(x, maxX) + 'px';
+    menu.style.top = Math.min(y, maxY) + 'px';
+  });
+
+  // Handle menu item clicks
+  menu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.context-menu-item');
+    if (!item) return;
+
+    const action = item.dataset.action;
+
+    if (action === 'copy-path' && targetPath) {
+      try {
+        // Copy path to clipboard (already in linux format)
+        await navigator.clipboard.writeText(targetPath);
+
+        // Brief visual feedback
+        const originalText = item.querySelector('span:last-child').textContent;
+        item.querySelector('span:last-child').textContent = 'Copied!';
+        setTimeout(() => {
+          item.querySelector('span:last-child').textContent = originalText;
+        }, 1000);
+      } catch (err) {
+        console.error('Failed to copy path:', err);
+      }
+    }
+
+    hideMenu();
+  });
+})();

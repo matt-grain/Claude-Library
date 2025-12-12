@@ -5,11 +5,13 @@ description = "A simple local markdown web viewer to manage Claude context files
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "rich>=14.2.0",
     "watchdog>=6.0.0",
 ]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.2",
     "pyright>=1.1.407",
     "ruff>=0.14.8",
 ]

@@ -34,15 +34,6 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.sidebar {
-  width: var(--left-w);
-  background: #fff;
-  border-right: 1px solid #e2e5ea;
-  padding: 10px;
-  box-sizing: border-box;
-  overflow: auto
-}
-
 .content {
   flex: 1;
   padding: 18px 4px;
@@ -184,7 +175,8 @@ header {
   display: flex;
   flex-direction: column;
   position: relative;
-  height: 100vh
+  height: 100vh;
+  overflow: hidden
 }
 
 .zoom-controls {
@@ -487,4 +479,46 @@ body,
 .dark .md-content th,
 .dark .md-content td {
   border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Context menu */
+.context-menu {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #d0d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+  min-width: 160px;
+  z-index: 2000;
+  font-size: 14px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.context-menu-item:hover {
+  background: #f0f4ff;
+}
+
+.context-menu-icon {
+  width: 16px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.dark .context-menu {
+  background: #0a1f2a;
+  border-color: #0b3a47;
+  color: #e6f6ff;
+}
+
+.dark .context-menu-item:hover {
+  background: #0b3a47;
 }
