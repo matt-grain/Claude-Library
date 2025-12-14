@@ -44,49 +44,82 @@ body {
 .list {
   list-style: none;
   margin: 0;
-  padding: 0
+  padding: 0;
+  font-size: 13px;
 }
 
 .list li {
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 .list li.folder {
   padding: 0;
-  margin-bottom: 1px;
+  margin-bottom: 0;
 }
 
 .folder-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
 }
 
 .folder .folder-children {
   list-style: none;
-  margin: 0 0 0 10px;
-  padding: 4px 0 4px 6px;
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 1px solid #e2e5ea;
+  margin-left: 8px;
+}
+
+.folder-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .caret {
-  font-size: 12px;
-  width: 16px;
-  display: inline-block;
+  font-size: 10px;
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.caret.expanded {
+  transform: rotate(90deg);
 }
 
 .folder-label {
-  font-weight: 600;
-  font-size: 14px
+  font-weight: 500;
+  font-size: 13px;
+  color: #333;
 }
 
 .file {
-  padding: 3px 8px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
   cursor: pointer;
-  margin-bottom: 1px
+  margin-bottom: 0;
+}
+
+.file-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .file:hover {
@@ -434,6 +467,18 @@ body,
 
 .dark .folder-header {
   color: #e6f6ff
+}
+
+.dark .folder-label {
+  color: #e6f6ff
+}
+
+.dark .folder .folder-children {
+  border-left-color: #1a3a4a;
+}
+
+.dark .caret {
+  color: #6a8a9a;
 }
 
 .dark .filename {

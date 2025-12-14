@@ -300,11 +300,16 @@ function renderList(list) {
     const caret = document.createElement('span');
     caret.className = 'caret';
     const isExpanded = renderList._expanded.has(folder.path);
-    caret.textContent = isExpanded ? '▾' : '▸';
+    caret.textContent = '›';
+    if (isExpanded) caret.classList.add('expanded');
+    const folderIcon = document.createElement('span');
+    folderIcon.className = 'folder-icon';
+    folderIcon.textContent = isExpanded ? '📂' : '📁';
     const label = document.createElement('span');
     label.className = 'folder-label';
     label.textContent = folder.name;
     header.appendChild(caret);
+    header.appendChild(folderIcon);
     header.appendChild(label);
     header.addEventListener('click', () => {
       // Toggle expansion in-place to avoid rebuilding the whole tree
@@ -312,11 +317,13 @@ function renderList(list) {
       const currently = renderList._expanded.has(path);
       if (currently) {
         renderList._expanded.delete(path);
-        caret.textContent = '▸';
+        caret.classList.remove('expanded');
+        folderIcon.textContent = '📁';
         if (inner) inner.style.display = 'none';
       } else {
         renderList._expanded.add(path);
-        caret.textContent = '▾';
+        caret.classList.add('expanded');
+        folderIcon.textContent = '📂';
         if (inner) inner.style.display = '';
       }
     });
@@ -335,7 +342,7 @@ function renderList(list) {
       fli.className = 'file';
       fli.dataset.index = file.index;
       fli.tabIndex = 0;
-      fli.innerHTML = `<div class="filename">${escapeHtml(file.name)}</div>`;
+      fli.innerHTML = `<span class="file-icon">📄</span><span class="filename">${escapeHtml(file.name)}</span>`;
       fli.addEventListener('click', () => selectFile(file.index));
       fli.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectFile(file.index); });
       if (file.index === activeIndex) fli.classList.add('active');
@@ -357,7 +364,7 @@ function renderList(list) {
     fli.className = 'file';
     fli.dataset.index = f.index;
     fli.tabIndex = 0;
-    fli.innerHTML = `<div class="filename">${escapeHtml(f.name)}</div>`;
+    fli.innerHTML = `<span class="file-icon">📄</span><span class="filename">${escapeHtml(f.name)}</span>`;
     fli.addEventListener('click', () => selectFile(f.index));
     fli.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectFile(f.index); });
     if (f.index === activeIndex) fli.classList.add('active');
