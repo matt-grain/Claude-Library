@@ -370,9 +370,30 @@ def is_md_file(path: Path | str) -> bool:
     return str(path).lower().endswith(".md")
 
 
-def walk_md_files(root: Path, max_depth: Optional[int] = None):
-    """Generator that yields (relative_path, full_path) for all .md files."""
+def walk_md_files(
+    root: Path, max_depth: Optional[int] = None, exclude_dir: Optional[Path] = None
+):
+    """Generator that yields (relative_path, full_path) for all .md files.
+
+    Args:
+        root: Root directory to walk
+        max_depth: Optional maximum recursion depth
+        exclude_dir: Optional directory to exclude from scanning (e.g., mirror dir)
+    """
+    # Resolve exclude_dir for comparison
+    exclude_resolved = exclude_dir.resolve() if exclude_dir else None
+
     for dirpath, dirnames, filenames in os.walk(root):
+        current_path = Path(dirpath).resolve()
+
+        # Skip the excluded directory entirely
+        if exclude_resolved and (
+            current_path == exclude_resolved
+            or exclude_resolved in current_path.parents
+        ):
+            dirnames.clear()
+            continue
+
         rel_dir = Path(dirpath).relative_to(root)
         depth = len(rel_dir.parts) if str(rel_dir) != "." else 0
 
@@ -380,7 +401,15 @@ def walk_md_files(root: Path, max_depth: Optional[int] = None):
             dirnames.clear()
             continue
 
-        dirnames[:] = [d for d in dirnames if should_include_dir(d)]
+        # Filter out excluded directory from dirnames to prevent descent
+        if exclude_resolved:
+            dirnames[:] = [
+                d for d in dirnames
+                if should_include_dir(d)
+                and (current_path / d).resolve() != exclude_resolved
+            ]
+        else:
+            dirnames[:] = [d for d in dirnames if should_include_dir(d)]
 
         for fname in sorted(filenames):
             if not is_md_file(fname):
@@ -391,9 +420,13 @@ def walk_md_files(root: Path, max_depth: Optional[int] = None):
                 yield rel_path, full_path
 
 
-def build_index(root: Path, max_depth: Optional[int] = None) -> list[str]:
+def build_index(
+    root: Path, max_depth: Optional[int] = None, exclude_dir: Optional[Path] = None
+) -> list[str]:
     """Build sorted index of .md file paths."""
-    return sorted(str(rel.as_posix()) for rel, _ in walk_md_files(root, max_depth))
+    return sorted(
+        str(rel.as_posix()) for rel, _ in walk_md_files(root, max_depth, exclude_dir)
+    )
 
 
 def write_index(
@@ -401,9 +434,10 @@ def write_index(
     out_path: Path,
     max_depth: Optional[int] = None,
     dashboard: Optional[Dashboard] = None,
+    exclude_dir: Optional[Path] = None,
 ) -> int:
     """Write the index to a JSON file atomically. Returns file count."""
-    md_paths = build_index(root, max_depth)
+    md_paths = build_index(root, max_depth, exclude_dir)
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
     tmp.write_text(json.dumps(md_paths, indent=2, ensure_ascii=False))
     tmp.replace(out_path)
@@ -502,6 +536,13 @@ class MDHandler(FileSystemEventHandler):
     def _should_handle(self, path: Path) -> bool:
         if not is_md_file(path):
             return False
+        # Exclude files in the mirror directory to prevent recursive processing
+        if self.mirror_to:
+            try:
+                path.resolve().relative_to(self.mirror_to.resolve())
+                return False  # Path is inside mirror directory
+            except ValueError:
+                pass  # Path is not inside mirror directory
         rel = self._get_rel_path(path)
         return rel is not None and should_include_path(rel)
 
@@ -567,8 +608,16 @@ class MDHandler(FileSystemEventHandler):
                         self.dashboard.log_activity("error", rel_str, str(e))
 
         # Rebuild index
+        # Only exclude mirror_to if indexing a directory that contains it (not the mirror itself)
         try:
-            write_index(self.index_root, self.out_path, self.max_depth, self.dashboard)
+            exclude = self.mirror_to if (self.mirror_to and self.index_root != self.mirror_to) else None
+            write_index(
+                self.index_root,
+                self.out_path,
+                self.max_depth,
+                self.dashboard,
+                exclude_dir=exclude,
+            )
         except Exception as e:
             if self.dashboard:
                 self.dashboard.log_activity("error", "index", str(e))
@@ -669,7 +718,8 @@ def initial_sync(
     mirror_to.mkdir(parents=True, exist_ok=True)
     copied = 0
     skipped = 0
-    for rel_path, full_path in walk_md_files(root, max_depth):
+    # Exclude the mirror directory to prevent recursive mirroring
+    for rel_path, full_path in walk_md_files(root, max_depth, exclude_dir=mirror_to):
         dst = mirror_to / rel_path
         if copy_file_with_retry(full_path, dst):
             copied += 1
@@ -691,7 +741,11 @@ def prune_mirror(
     dashboard: Optional[Dashboard] = None,
 ) -> int:
     """Remove files from mirror that no longer exist in source. Returns count."""
-    existing = {str(rel.as_posix()) for rel, _ in walk_md_files(root, max_depth)}
+    # Exclude the mirror directory to prevent recursive scanning
+    existing = {
+        str(rel.as_posix())
+        for rel, _ in walk_md_files(root, max_depth, exclude_dir=mirror_to)
+    }
 
     removed = 0
     for mirror_file in mirror_to.rglob("*.md"):
@@ -747,12 +801,6 @@ def main():
         help="Remove stale files from mirror destination",
     )
     parser.add_argument(
-        "--index-source",
-        choices=("watch", "mirror"),
-        default=None,
-        help="Generate index from 'watch' or 'mirror' (default: mirror)",
-    )
-    parser.add_argument(
         "--max-depth",
         type=int,
         default=None,
@@ -784,10 +832,8 @@ def main():
         Console().print(f"[red]Error:[/red] Watched directory does not exist: {root}")
         sys.exit(2)
 
-    index_source = args.index_source
-    if index_source is None and mirror_to:
-        index_source = "mirror"
-    index_root = mirror_to if (mirror_to and index_source == "mirror") else root
+    # Index is always built from mirror directory (where web server can access files)
+    index_root = mirror_to if mirror_to else root
     out_path = resolve_output_path(args.out)
 
     # Start embedded HTTP server
@@ -819,7 +865,9 @@ def main():
                 prune_mirror(root, mirror_to, args.max_depth, dashboard)
 
         # Write initial index
-        write_index(index_root, out_path, args.max_depth, dashboard)
+        # Only exclude mirror_to if we're indexing a directory that contains it (not the mirror itself)
+        exclude = mirror_to if (mirror_to and index_root != mirror_to) else None
+        write_index(index_root, out_path, args.max_depth, dashboard, exclude_dir=exclude)
 
         if dashboard:
             dashboard.set_status("Watching for changes...", STYLE_SUCCESS)

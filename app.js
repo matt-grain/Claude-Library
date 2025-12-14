@@ -278,17 +278,9 @@ function renderList(list) {
   // Store root globally for the collapse/expand button
   window.fileTreeRoot = root;
 
-  // track expanded folders (initialize expanded set and expand all folders by default)
+  // track expanded folders (initialize as empty set - collapsed by default)
   if (!renderList._expanded) {
     renderList._expanded = new Set();
-    // collect all folder paths from the built tree so the tree is expanded by default
-    function collectAllFolders(node) {
-      for (const child of node.children.values()) {
-        if (child.path) renderList._expanded.add(child.path);
-        collectAllFolders(child);
-      }
-    }
-    collectAllFolders(root);
   }
 
   // If there's a single top-level folder and no files at root, unwrap it
@@ -572,7 +564,7 @@ if (sidebarEl) {
   const toggleAllFoldersBtn = document.createElement('button');
   toggleAllFoldersBtn.className = 'toggle-folders-btn btn';
   toggleAllFoldersBtn.title = 'Collapse/Expand all folders';
-  toggleAllFoldersBtn.textContent = '▼';
+  toggleAllFoldersBtn.textContent = '▶';
   zoomWrap.appendChild(toggleAllFoldersBtn);
   sidebarEl.appendChild(zoomWrap);
 
@@ -610,7 +602,7 @@ if (sidebarEl) {
   themeToggle.addEventListener('click', (e) => { e.preventDefault(); toggleTheme(); });
 
   // collapse/expand all folders toggle
-  let allExpanded = true; // start with assumption that all are expanded
+  let allExpanded = false; // start collapsed by default
   toggleAllFoldersBtn.addEventListener('click', (e) => {
     e.preventDefault();
     if (!renderList._expanded) renderList._expanded = new Set();
@@ -967,4 +959,104 @@ document.addEventListener('keydown', (e) => {
 
     hideMenu();
   });
+})();
+
+// --- Smart polling: auto-refresh file list when files.json changes ---
+(function setupSmartPolling() {
+  const POLL_INTERVAL = 5000; // 5 seconds
+  let lastContentHash = null;
+  let pollTimer = null;
+
+  // Simple hash function for comparing content
+  function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash;
+  }
+
+  // Show brief "Updated" indicator on refresh button
+  function showUpdateIndicator() {
+    const originalText = refreshBtn.textContent;
+    refreshBtn.textContent = 'Updated';
+    refreshBtn.style.color = '#22c55e'; // green
+    setTimeout(() => {
+      refreshBtn.textContent = originalText;
+      refreshBtn.style.color = '';
+    }, 1500);
+  }
+
+  // Check for updates
+  async function checkForUpdates() {
+    try {
+      // Add cache-busting parameter to ensure fresh response
+      const url = INDEX_FILE + '?t=' + Date.now();
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) return;
+
+      const text = await response.text();
+      const newHash = simpleHash(text);
+
+      // First poll: just store the hash
+      if (lastContentHash === null) {
+        lastContentHash = newHash;
+        return;
+      }
+
+      // Content changed: update the UI
+      if (newHash !== lastContentHash) {
+        lastContentHash = newHash;
+        const list = JSON.parse(text);
+        files = (Array.isArray(list) ? list.map(item => {
+          if (typeof item === 'string') {
+            const p = item;
+            const n = p.split('/').pop();
+            return { name: n, path: p };
+          } else if (item && typeof item === 'object') {
+            return { name: item.name || (item.path && item.path.split('/').pop()) || 'file', path: item.path };
+          }
+          return null;
+        }).filter(Boolean) : []);
+        window.fileTree = files;
+        renderList(files);
+        showUpdateIndicator();
+      }
+    } catch (e) {
+      // Silently ignore errors during background polling
+    }
+  }
+
+  // Start/stop polling based on visibility
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(checkForUpdates, POLL_INTERVAL);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  // Handle visibility changes
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // Check immediately when tab becomes visible
+      checkForUpdates();
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  // Initialize: start polling after initial load completes
+  // Small delay to let the initial fetchIndex finish first
+  setTimeout(() => {
+    checkForUpdates(); // Get initial hash
+    startPolling();
+  }, 1000);
 })();
