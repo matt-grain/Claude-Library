@@ -122,6 +122,11 @@ body {
   opacity: 0.7;
 }
 
+/* Align root-level files with folder icons (account for caret width) */
+.list > .file {
+  padding-left: 20px;
+}
+
 .file:hover {
   background: #f0f4ff
 }
