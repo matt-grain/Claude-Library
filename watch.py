@@ -43,7 +43,7 @@ COPY_RETRY_ATTEMPTS = 5
 COPY_RETRY_DELAY = 0.3  # 300ms between retries
 COPY_INITIAL_DELAY = 0.2  # Wait before first copy attempt
 SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules"}
-MAX_ACTIVITY_LOG = 12
+MAX_ACTIVITY_LOG = 50
 DEFAULT_PORT = 7777
 
 
@@ -60,18 +60,213 @@ STYLE_SUCCESS = Style(color="green", bold=True)
 
 # --- HTTP Server ---
 class QuietHTTPHandler(SimpleHTTPRequestHandler):
-    """HTTP handler that suppresses all logging."""
+    """HTTP handler that suppresses all logging and handles API endpoints."""
+
+    # Class variables for move operations and index rebuilding
+    watch_root: Optional[Path] = None
+    index_root: Optional[Path] = None
+    index_out_path: Optional[Path] = None
 
     def log_message(self, format: str, *args: object) -> None:
         pass  # Suppress all output
+
+    def do_POST(self) -> None:
+        """Handle POST requests for API endpoints."""
+        if self.path == '/api/move-to-done':
+            self._handle_move_to_done()
+        else:
+            self.send_error(404, "Not Found")
+
+    def _handle_move_to_done(self) -> None:
+        """Move a .md file to a Done folder in the same directory."""
+        try:
+            # Read request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
+
+            file_path = data.get('path', '')
+            if not file_path:
+                self._send_json_error(400, "Missing 'path' parameter")
+                return
+
+            # Security: only allow .md files
+            if not file_path.lower().endswith('.md'):
+                self._send_json_error(400, "Only .md files can be moved")
+                return
+
+            # Get the watch root from class variable
+            watch_root = QuietHTTPHandler.watch_root
+            if not watch_root:
+                self._send_json_error(500, "Server not configured properly")
+                return
+
+            # Resolve the source file path - prioritize watch_root (source directory)
+            # so the watcher can detect the change and sync automatically
+            src_path = None
+            tried_paths = []
+
+            # Primary: look in watch_root (source directory)
+            src_candidate = watch_root / file_path
+            tried_paths.append(str(src_candidate))
+            if src_candidate.exists():
+                src_path = src_candidate
+            else:
+                # Fallback: check other locations but warn
+                fallback_candidates = [
+                    Path.cwd() / file_path,           # Current working directory
+                    Path.cwd() / "md" / file_path,    # Mirror directory (md/)
+                ]
+                for candidate in fallback_candidates:
+                    tried_paths.append(str(candidate))
+                    if candidate.exists():
+                        src_path = candidate
+                        break
+
+            if src_path is None:
+                self._send_json_error(404, f"File not found: {file_path} (tried: {', '.join(tried_paths)})")
+                return
+
+            # Security: ensure path doesn't escape allowed directories
+            src_resolved = src_path.resolve()
+            watch_resolved = watch_root.resolve()
+            cwd_resolved = Path.cwd().resolve()
+            md_resolved = (Path.cwd() / "md").resolve()
+
+            is_allowed = False
+            for allowed_root in [watch_resolved, cwd_resolved, md_resolved]:
+                try:
+                    src_resolved.relative_to(allowed_root)
+                    is_allowed = True
+                    break
+                except ValueError:
+                    pass
+
+            if not is_allowed:
+                self._send_json_error(400, "Invalid path")
+                return
+
+            # Create Done folder in the same directory as the file
+            done_folder = src_path.parent / "Done"
+            done_folder.mkdir(parents=True, exist_ok=True)
+
+            # Move the file
+            dest_path = done_folder / src_path.name
+
+            # Handle name collision by adding a number
+            if dest_path.exists():
+                base = src_path.stem
+                ext = src_path.suffix
+                counter = 1
+                while dest_path.exists():
+                    dest_path = done_folder / f"{base}_{counter}{ext}"
+                    counter += 1
+
+            shutil.move(str(src_path), str(dest_path))
+
+            # If moved in watch_root, the watcher will automatically sync and update index
+            # Only manually update index if file was in mirror directory (fallback case)
+            is_in_watch_root = str(src_resolved).startswith(str(watch_resolved))
+            if not is_in_watch_root:
+                if QuietHTTPHandler.index_root and QuietHTTPHandler.index_out_path:
+                    self._update_index_entry(src_path, dest_path)
+
+            # Send success response with relative path
+            rel_dest = dest_path
+            for base in [cwd_resolved, watch_resolved, md_resolved]:
+                try:
+                    rel_dest = dest_path.relative_to(base)
+                    break
+                except ValueError:
+                    pass
+            self._send_json_response(200, {
+                "success": True,
+                "message": f"File moved to {rel_dest}"
+            })
+
+        except json.JSONDecodeError:
+            self._send_json_error(400, "Invalid JSON")
+        except Exception as e:
+            self._send_json_error(500, str(e))
+
+    def _update_index_entry(self, old_path: Path, new_path: Path) -> None:
+        """Update the files.json index incrementally after a file move."""
+        try:
+            index_root = QuietHTTPHandler.index_root
+            out_path = QuietHTTPHandler.index_out_path
+            if not index_root or not out_path or not out_path.exists():
+                return
+
+            # Read current index
+            current_index = json.loads(out_path.read_text(encoding='utf-8'))
+            if not isinstance(current_index, list):
+                return
+
+            # Calculate relative paths (try both index_root and md/ folder)
+            old_rel = None
+            new_rel = None
+
+            for base in [index_root, Path.cwd() / "md"]:
+                try:
+                    old_rel = str(old_path.relative_to(base).as_posix())
+                    break
+                except ValueError:
+                    pass
+
+            for base in [index_root, Path.cwd() / "md"]:
+                try:
+                    new_rel = str(new_path.relative_to(base).as_posix())
+                    break
+                except ValueError:
+                    pass
+
+            if old_rel is None or new_rel is None:
+                return
+
+            # Remove old path and add new path
+            if old_rel in current_index:
+                current_index.remove(old_rel)
+            if new_rel not in current_index:
+                current_index.append(new_rel)
+
+            # Sort and write atomically
+            current_index.sort()
+            tmp = out_path.with_suffix(out_path.suffix + '.tmp')
+            tmp.write_text(json.dumps(current_index, indent=2, ensure_ascii=False))
+            tmp.replace(out_path)
+        except Exception:
+            pass  # Silently ignore update errors
+
+    def _send_json_response(self, status: int, data: dict) -> None:
+        """Send a JSON response."""
+        response = json.dumps(data).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def _send_json_error(self, status: int, message: str) -> None:
+        """Send a JSON error response."""
+        self._send_json_response(status, {"error": message})
 
 
 class WebServer:
     """Embedded HTTP server running in a background thread."""
 
-    def __init__(self, directory: Path, port: int = DEFAULT_PORT):
+    def __init__(
+        self,
+        directory: Path,
+        port: int = DEFAULT_PORT,
+        watch_root: Optional[Path] = None,
+        index_root: Optional[Path] = None,
+        index_out_path: Optional[Path] = None,
+    ):
         self.directory = directory
         self.port = port
+        self.watch_root = watch_root
+        self.index_root = index_root
+        self.index_out_path = index_out_path
         self.server: Optional[socketserver.TCPServer] = None
         self.thread: Optional[threading.Thread] = None
 
@@ -79,6 +274,14 @@ class WebServer:
         """Start the server. Returns True if successful."""
         try:
             socketserver.TCPServer.allow_reuse_address = True
+
+            # Set class variables on handler for API endpoints
+            if self.watch_root:
+                QuietHTTPHandler.watch_root = self.watch_root
+            if self.index_root:
+                QuietHTTPHandler.index_root = self.index_root
+            if self.index_out_path:
+                QuietHTTPHandler.index_out_path = self.index_out_path
 
             # Create handler class with directory bound
             directory = str(self.directory)
@@ -840,7 +1043,13 @@ def main():
     web_server: Optional[WebServer] = None
     server_url: Optional[str] = None
     if not args.no_server:
-        web_server = WebServer(Path.cwd(), args.port)
+        web_server = WebServer(
+            Path.cwd(),
+            args.port,
+            watch_root=root,
+            index_root=index_root,
+            index_out_path=out_path,
+        )
         if web_server.start():
             server_url = web_server.url
         else:

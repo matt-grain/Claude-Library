@@ -297,6 +297,13 @@ function renderList(list) {
     li.className = 'folder';
     const header = document.createElement('div');
     header.className = 'folder-header';
+
+    // Check if this is a "Done" folder
+    const isDoneFolder = folder.name.toLowerCase() === 'done';
+    if (isDoneFolder) {
+      li.classList.add('done-folder');
+    }
+
     const caret = document.createElement('span');
     caret.className = 'caret';
     const isExpanded = renderList._expanded.has(folder.path);
@@ -304,7 +311,12 @@ function renderList(list) {
     if (isExpanded) caret.classList.add('expanded');
     const folderIcon = document.createElement('span');
     folderIcon.className = 'folder-icon';
-    folderIcon.textContent = isExpanded ? '📂' : '📁';
+    // Use checkmark icon for Done folders
+    if (isDoneFolder) {
+      folderIcon.textContent = '✅';
+    } else {
+      folderIcon.textContent = isExpanded ? '📂' : '📁';
+    }
     const label = document.createElement('span');
     label.className = 'folder-label';
     label.textContent = folder.name;
@@ -318,12 +330,13 @@ function renderList(list) {
       if (currently) {
         renderList._expanded.delete(path);
         caret.classList.remove('expanded');
-        folderIcon.textContent = '📁';
+        // Keep checkmark for Done folders, toggle for others
+        if (!isDoneFolder) folderIcon.textContent = '📁';
         if (inner) inner.style.display = 'none';
       } else {
         renderList._expanded.add(path);
         caret.classList.add('expanded');
-        folderIcon.textContent = '📂';
+        if (!isDoneFolder) folderIcon.textContent = '📂';
         if (inner) inner.style.display = '';
       }
     });
@@ -892,20 +905,35 @@ document.addEventListener('keydown', (e) => {
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.style.display = 'none';
-  menu.innerHTML = `
-    <div class="context-menu-item" data-action="copy-path">
-      <span class="context-menu-icon">📋</span>
-      <span>Copy path</span>
-    </div>
-  `;
   document.body.appendChild(menu);
 
   let targetPath = null;
+  let targetIsMdFile = false;
+
+  // Build menu items dynamically based on file type
+  function buildMenuItems() {
+    let html = `
+      <div class="context-menu-item" data-action="copy-path">
+        <span class="context-menu-icon">📋</span>
+        <span>Copy path</span>
+      </div>
+    `;
+    if (targetIsMdFile) {
+      html += `
+        <div class="context-menu-item" data-action="move-to-done">
+          <span class="context-menu-icon">✅</span>
+          <span>Move to Done</span>
+        </div>
+      `;
+    }
+    menu.innerHTML = html;
+  }
 
   // Hide menu on click outside or escape
   function hideMenu() {
     menu.style.display = 'none';
     targetPath = null;
+    targetIsMdFile = false;
   }
 
   document.addEventListener('click', hideMenu);
@@ -926,6 +954,12 @@ document.addEventListener('keydown', (e) => {
 
     // Store the path (already in linux format from files.json)
     targetPath = displayed[idx].path;
+
+    // Check if file is a .md file
+    targetIsMdFile = targetPath.toLowerCase().endsWith('.md');
+
+    // Build menu items based on file type
+    buildMenuItems();
 
     // Position the menu
     const x = e.clientX;
@@ -961,6 +995,33 @@ document.addEventListener('keydown', (e) => {
         }, 1000);
       } catch (err) {
         console.error('Failed to copy path:', err);
+      }
+    } else if (action === 'move-to-done' && targetPath) {
+      try {
+        // Call backend API to move file to Done folder
+        const response = await fetch('/api/move-to-done', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: targetPath })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to move file');
+        }
+
+        // Brief visual feedback
+        const originalText = item.querySelector('span:last-child').textContent;
+        item.querySelector('span:last-child').textContent = 'Moved!';
+        setTimeout(() => {
+          item.querySelector('span:last-child').textContent = originalText;
+        }, 1000);
+
+        // Refresh file list after successful move
+        setTimeout(() => fetchIndex({ showLoading: false }), 500);
+      } catch (err) {
+        console.error('Failed to move file to Done:', err);
+        alert('Failed to move file: ' + err.message);
       }
     }
 
